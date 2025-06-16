@@ -2,6 +2,7 @@ import { Router } from "express";
 import { EizenService } from "../services/EizenService.js";
 import { embeddingService } from "../services/EmbeddingService.js";
 import { MemoryService } from "../services/MemoryService.js";
+import { checkRedisConnectivity } from "../utils/helper.js";
 import { errorResponse, successResponse } from "../utils/responses.js";
 
 const router = Router();
@@ -65,6 +66,9 @@ router.get("/detailed", async (req, res) => {
 			arch: process.arch,
 		};
 
+		// Get actual Redis connection status efficiently without logs
+		const redisStatus = await checkRedisConnectivity();
+
 		// Service configuration
 		const embeddingInfo = embeddingService.getInfo();
 		const allowedOrigins = process.env.ORIGIN?.split(",")
@@ -75,14 +79,14 @@ router.get("/detailed", async (req, res) => {
 			arweaveGateway: process.env.ARWEAVE_GATEWAY,
 			hasServiceWallet: !!process.env.SERVICE_WALLET_ADDRESS,
 			hasEizenContract: !!process.env.EIZEN_CONTRACT_ID,
-			hasRedis: !!process.env.REDIS_URL,
-			embeddingService: embeddingInfo.isInitialized ? "xenova" : "unavailable",
-			architecture: "multi-tenant",
+			redis: redisStatus,
 			cors: {
 				allowedOrigins: allowedOrigins,
 				credentialsEnabled: true,
 				originCount: allowedOrigins.length,
 			},
+			embeddingService: embeddingInfo.isInitialized ? "xenova" : "unavailable",
+			architecture: "multi-tenant",
 		};
 
 		const healthData = {
