@@ -1,8 +1,13 @@
-import { Redis } from "ioredis";
+import type { Redis } from "ioredis";
 import { type Warp, WarpFactory, defaultCacheOptions } from "warp-contracts";
 import type { JWKInterface } from "warp-contracts";
 import { DeployPlugin } from "warp-contracts-plugin-deploy";
 import { RedisCache } from "warp-contracts-redis";
+import {
+	checkArLocalRunning,
+	initializeRedis,
+	validateWalletAddress,
+} from "../utils/helper.js";
 
 /**
  * Configuration interface for Arweave blockchain connection.
@@ -10,6 +15,11 @@ import { RedisCache } from "warp-contracts-redis";
  * This interface defines the complete setup required for ArchiveNET to interact
  * with the Arweave blockchain through Warp Contracts, including wallet authentication,
  * caching infrastructure (Redis), and network configuration.
+ *
+ * @interface ArweaveConfig
+ * @property {Warp} warp - Configured Warp instance for blockchain interactions
+ * @property {JWKInterface} wallet - Arweave wallet for transaction signing
+ * @property {Redis} redis - Optional Redis instance for contract state caching
  */
 export interface ArweaveConfig {
 	warp: Warp;
@@ -22,101 +32,151 @@ export interface ArweaveConfig {
  *
  * This function sets up a production-ready blockchain connection with automatic
  * environment detection, wallet management, and multi-tier caching. It handles:
- * - Network selection (mainnet for production, testnet for development)
- * - Wallet loading from `wallet.json` or automatic generation
- * - Redis caching integration for improved performance
- * - Contract deployment capabilities
+ * - Network selection (mainnet for production, ArLocal for development with testnet fallback)
+ * - Wallet loading from environment variables (production) or dev-wallet.json (development)
+ * - Redis caching integration for improved performance (delegated to helper function)
+ * - Contract deployment capabilities through DeployPlugin
  *
- * **Environment Variables Required:**
- * - `NODE_ENV`: Determines network selection ('production' for mainnet)
- * - `REDIS_URL`: Optional Redis connection string for caching
- * - `ARWEAVE_WALLET_PATH`: Path to wallet JSON file (production)
- * - `SERVICE_WALLET_ADDRESS`: Wallet address for production validation
+ * **Environment Variables:**
+ * - `NODE_ENV`: Determines network selection ('production' for mainnet, others for development)
+ * - `REDIS_URL`: Optional Redis connection string for caching (handled by initializeRedis helper)
+ * - `ARWEAVE_WALLET_PATH`: Path to wallet JSON file (required in production)
+ * - `SERVICE_WALLET_ADDRESS`: Wallet address for production validation (required in production)
+ *
+ * **Network Selection Logic:**
+ * - **Production (`NODE_ENV=production`)**: Always uses Arweave mainnet with optional Redis caching
+ * - **Development (other environments)**: Prefers ArLocal (localhost:8080), falls back to Warp testnet if unavailable
+ *
+ * **Wallet Management:**
+ * - **Production**: Loads wallet from file specified by `ARWEAVE_WALLET_PATH` and validates it matches `SERVICE_WALLET_ADDRESS` (throws error if missing/invalid/mismatched)
+ * - **Development**: Uses existing `./dev-wallet.json` or creates new one automatically if missing
  *
  * **Cache Hierarchy:**
- * 1. Redis Cache (primary) - Fast in-memory contract state caching
- * 2. LevelDB Cache (fallback) - Local filesystem caching via Warp
+ * 1. Redis Cache (primary) - Fast in-memory contract state caching (optional, via initializeRedis helper)
+ * 2. LevelDB Cache (fallback) - Local filesystem caching via Warp (default)
  * 3. Arweave Network (source) - Direct blockchain queries as last resort
  *
- * @returns Promise resolving to complete Arweave configuration
+ * @returns {Promise<ArweaveConfig>} Promise resolving to complete Arweave configuration
  *
- * @throws {Error} When wallet file is missing in production environment
- * @throws {Error} When Redis connection fails and no fallback is available
+ * @throws {Error} When production wallet file is missing, unreadable, or invalid JSON
+ * @throws {Error} When production wallet address doesn't match SERVICE_WALLET_ADDRESS
+ * @throws {Error} When production environment variables (SERVICE_WALLET_ADDRESS, ARWEAVE_WALLET_PATH) are not set
  */
 export async function initializeArweave(): Promise<ArweaveConfig> {
 	const isProduction = process.env.NODE_ENV?.trim() === "production";
 
-	// Initialize Redis if URL is provided
-	let redis: Redis | undefined;
-	if (process.env.REDIS_URL) {
-		try {
-			redis = new Redis(process.env.REDIS_URL);
-			redis.on("error", (err) => {
-				console.warn("Redis connection lost, disabling cache:", err);
-				redis?.disconnect();
-				redis = undefined;
-			});
-			await redis.ping(); // simple readiness check
-			console.log("Redis connected for Arweave caching");
-		} catch (error) {
-			console.warn("Redis connection failed, proceeding without cache:", error);
-		}
-	}
+	// Initialize Redis connection only in production mode
+	const redis = isProduction ? await initializeRedis() : undefined;
 
 	// Create Warp instance with appropriate network
 	let warp: Warp;
 
 	if (isProduction) {
-		// Production: Use `mainnet` with Redis caching if available
+		// Production: Use Arweave mainnet with Redis caching if available
 		warp = redis
-			? WarpFactory.forMainnet().useKVStorageFactory(
+			? WarpFactory.forMainnet(undefined, true).useKVStorageFactory(
 					(contractTxId: string) =>
 						new RedisCache(
 							{ ...defaultCacheOptions, dbLocation: `${contractTxId}` },
 							{ client: redis },
 						),
 				)
-			: WarpFactory.forMainnet(); // Production fallback: mainnet without Redis
-		console.log("Configured for Arweave mainnet (production)");
+			: WarpFactory.forMainnet(undefined, true); // Fallback: mainnet without Redis caching
+		console.log(
+			"Configured for Arweave mainnet (production) using https://arweave.net gateway",
+		);
 	} else {
-		// Development: Use Arweave testnet for safe testing
-		warp = WarpFactory.forTestnet();
-		console.log("Configured for Arweave testnet (development)");
+		// Development: Prefer ArLocal for safe local testing, fallback to testnet
+		const ARLOCAL_PORT = 8080;
+		const isArLocalRunning = await checkArLocalRunning(ARLOCAL_PORT);
+
+		if (isArLocalRunning) {
+			warp = WarpFactory.forLocal(ARLOCAL_PORT);
+			console.log(
+				`Configured for ArLocal development server on localhost:${ARLOCAL_PORT}`,
+			);
+		} else {
+			console.warn(`ArLocal not running on localhost:${ARLOCAL_PORT}`);
+			console.warn("To start ArLocal for local testing, run: npx arlocal 8080");
+			console.warn("Falling back to Warp Testnet...");
+			console.warn("⚠️ Some endpoints may not work as expected in testnet mode");
+
+			// FALLBACK: Use testnet when ArLocal is unavailable
+			// NOTE: Some endpoints may not work correctly in testnet mode,
+			// especially those requiring contract state mutations or real bundling.
+			warp = WarpFactory.forTestnet(undefined, true);
+		}
 	}
 
-	warp.use(new DeployPlugin()); // Enable contract deployment capabilities
+	warp.use(new DeployPlugin()); // Enable SmartWeave contract deployment capabilities
 
-	// Initialize wallet with automatic fallback for development
+	// Initialize wallet based on environment with strict separation
 	let wallet: JWKInterface;
 
-	if (process.env.SERVICE_WALLET_ADDRESS && process.env.ARWEAVE_WALLET_PATH) {
-		const walletPath = process.env.ARWEAVE_WALLET_PATH;
-		try {
-			// Production: Load wallet from secure file storage
-			const { readFileSync } = await import("node:fs");
-			wallet = JSON.parse(readFileSync(walletPath, "utf-8"));
-			const walletAddress = await warp.arweave.wallets.jwkToAddress(wallet);
+	if (isProduction) {
+		// PRODUCTION MODE: Strict wallet loading from environment variables
+		if (process.env.SERVICE_WALLET_ADDRESS && process.env.ARWEAVE_WALLET_PATH) {
+			try {
+				const { readFileSync } = await import("node:fs");
+				const walletPath = process.env.ARWEAVE_WALLET_PATH;
+				const expectedAddress = process.env.SERVICE_WALLET_ADDRESS;
 
-			console.log("Production wallet loaded successfully");
-			console.log(`Wallet Source: ${walletPath}`);
-			console.log(`Wallet Address: ${walletAddress}`);
-		} catch (error) {
+				wallet = JSON.parse(readFileSync(walletPath, "utf-8"));
+
+				// Validate wallet address using helper function
+				const walletAddress = await validateWalletAddress(
+					wallet,
+					expectedAddress,
+					walletPath,
+					warp,
+				);
+
+				console.log("Production wallet loaded successfully");
+				console.log(`Wallet Source: ${walletPath}`);
+				console.log(`Wallet Address: ${walletAddress}`);
+				console.log("Wallet validation passed.");
+			} catch (error) {
+				console.error("❌ Failed to load production wallet:", error);
+				throw new Error(
+					"Production wallet is required but could not be loaded. Please check ARWEAVE_WALLET_PATH and ensure the wallet file exists and contains valid JSON.",
+				);
+			}
+		} else {
 			throw new Error(
-				`Cannot load production wallet at ${walletPath}: ${String(error)}`,
+				"Production environment requires both SERVICE_WALLET_ADDRESS and ARWEAVE_WALLET_PATH environment variables to be set.",
 			);
 		}
 	} else {
-		// Development: Generate ephemeral wallet for testing
-		wallet = await warp.arweave.wallets.generate();
-		const walletAddress = await warp.arweave.wallets.jwkToAddress(wallet);
-		const { writeFileSync } = await import("node:fs");
-		const walletPath = "./dev-wallet.json";
-		writeFileSync(walletPath, JSON.stringify(wallet, null, 2));
-		console.log("Generated ephemeral wallet for development");
-		console.log(`Wallet Address: ${walletAddress}`);
-		console.log(
-			"Please Configure valid SERVICE_WALLET_ADDRESS and ARWEAVE_WALLET_PATH for production",
-		);
+		// DEVELOPMENT MODE: Auto-managed dev-wallet.json
+		const devWalletPath = "./dev-wallet.json";
+
+		try {
+			// Attempt to load existing development wallet
+			const { readFileSync } = await import("node:fs");
+			wallet = JSON.parse(readFileSync(devWalletPath, "utf-8"));
+			const walletAddress = await warp.arweave.wallets.jwkToAddress(wallet);
+
+			console.log("Development wallet loaded from existing file");
+			console.log(`Wallet Source: ${devWalletPath}`);
+			console.log(`Wallet Address: ${walletAddress}`);
+		} catch (error) {
+			// Generate and save new development wallet if file doesn't exist
+			console.log("Development wallet not found, creating new one...");
+
+			wallet = await warp.arweave.wallets.generate();
+			const walletAddress = await warp.arweave.wallets.jwkToAddress(wallet);
+
+			// Persist the wallet for future development sessions
+			const { writeFileSync } = await import("node:fs");
+			writeFileSync(devWalletPath, JSON.stringify(wallet, null, 2));
+
+			console.log("New development wallet created and saved");
+			console.log(`Wallet Source: ${devWalletPath}`);
+			console.log(`Wallet Address: ${walletAddress}`);
+			console.log(
+				"For production deployment, configure SERVICE_WALLET_ADDRESS and ARWEAVE_WALLET_PATH environment variables",
+			);
+		}
 	}
 
 	console.log(
@@ -128,16 +188,4 @@ export async function initializeArweave(): Promise<ArweaveConfig> {
 		wallet,
 		redis,
 	};
-}
-
-/**
- * Returns the configured Arweave gateway URL for data retrieval.
- *
- * The gateway serves as the HTTP endpoint for accessing Arweave data,
- * including transaction data, contract states, and stored content.
- * Uses the official Arweave gateway by default with environment override support.
- * @see https://medium.com/ar-io/what-is-a-gateway-14fdd8c15076
- */
-export function getArweaveGateway(): string {
-	return process.env.ARWEAVE_GATEWAY || "https://arweave.net";
 }
