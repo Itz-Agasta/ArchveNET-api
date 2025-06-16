@@ -17,6 +17,7 @@ build/
 .env.test.local
 .env.production.local
 wallet.json
+prod-wallet.json
 dev-wallet.json
 
 # IDE files
@@ -40,6 +41,7 @@ Thumbs.db
 logs/
 *.log
 cache/
+dump.rdb
 
 # Runtime data
 pids/
