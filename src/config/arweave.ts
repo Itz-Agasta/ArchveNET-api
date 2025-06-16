@@ -3,11 +3,8 @@ import { type Warp, WarpFactory, defaultCacheOptions } from "warp-contracts";
 import type { JWKInterface } from "warp-contracts";
 import { DeployPlugin } from "warp-contracts-plugin-deploy";
 import { RedisCache } from "warp-contracts-redis";
-import {
-	checkArLocalRunning,
-	initializeRedis,
-	validateWalletAddress,
-} from "../utils/helper.js";
+import { checkArLocalRunning, validateWalletAddress } from "../utils/helper.js";
+import { initializeRedis } from "./redis.js";
 
 /**
  * Configuration interface for Arweave blockchain connection.
