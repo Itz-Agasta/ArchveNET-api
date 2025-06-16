@@ -114,11 +114,11 @@ export async function initializeArweave(): Promise<ArweaveConfig> {
 		// PRODUCTION MODE: Strict wallet loading from environment variables
 		if (process.env.SERVICE_WALLET_ADDRESS && process.env.ARWEAVE_WALLET_PATH) {
 			try {
-				const { readFileSync } = await import("node:fs");
+				const { readFile } = await import("node:fs/promises");
 				const walletPath = process.env.ARWEAVE_WALLET_PATH;
 				const expectedAddress = process.env.SERVICE_WALLET_ADDRESS;
 
-				wallet = JSON.parse(readFileSync(walletPath, "utf-8"));
+				wallet = JSON.parse(await readFile(walletPath, "utf-8"));
 
 				// Validate wallet address using helper function
 				const walletAddress = await validateWalletAddress(
@@ -149,8 +149,8 @@ export async function initializeArweave(): Promise<ArweaveConfig> {
 
 		try {
 			// Attempt to load existing development wallet
-			const { readFileSync } = await import("node:fs");
-			wallet = JSON.parse(readFileSync(devWalletPath, "utf-8"));
+			const { readFile } = await import("node:fs/promises");
+			wallet = JSON.parse(await readFile(devWalletPath, "utf-8"));
 			const walletAddress = await warp.arweave.wallets.jwkToAddress(wallet);
 
 			console.log("Development wallet loaded from existing file");
@@ -164,8 +164,8 @@ export async function initializeArweave(): Promise<ArweaveConfig> {
 			const walletAddress = await warp.arweave.wallets.jwkToAddress(wallet);
 
 			// Persist the wallet for future development sessions
-			const { writeFileSync } = await import("node:fs");
-			writeFileSync(devWalletPath, JSON.stringify(wallet, null, 2));
+			const { writeFile } = await import("node:fs/promises");
+			await writeFile(devWalletPath, JSON.stringify(wallet, null, 2));
 
 			console.log("New development wallet created and saved");
 			console.log(`Wallet Source: ${devWalletPath}`);

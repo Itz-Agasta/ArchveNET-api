@@ -18,11 +18,17 @@ import type { JWKInterface } from "warp-contracts";
  * - `src/config/arweave.ts` - Used during Arweave initialization to detect ArLocal
  */
 export async function checkArLocalRunning(port = 8080): Promise<boolean> {
+	const controller = new AbortController();
+	const id = setTimeout(() => controller.abort(), 1000);
 	try {
-		const response = await fetch(`http://localhost:${port}/info`);
+		const response = await fetch(`http://localhost:${port}/info`, {
+			signal: controller.signal,
+		});
 		return response.ok;
-	} catch (error) {
+	} catch {
 		return false;
+	} finally {
+		clearTimeout(id);
 	}
 }
 

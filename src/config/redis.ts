@@ -18,8 +18,10 @@ export async function initializeRedis(): Promise<Redis | undefined> {
 
 	console.log("Attempting to connect to Redis.....");
 
+	let redis: Redis | undefined;
+
 	try {
-		const redis = new Redis(process.env.REDIS_URL, {
+		redis = new Redis(process.env.REDIS_URL, {
 			// Connection settings
 			connectTimeout: 10000,
 			commandTimeout: 5000,
@@ -53,9 +55,10 @@ export async function initializeRedis(): Promise<Redis | undefined> {
 		return redis;
 	} catch (error) {
 		console.warn(
-			"❌ Redis initial connection failed, proceeding without cache:",
+			"❌ Redis initial connection failed, proceeding without caching",
 			error,
 		);
-		return undefined;
+
+		return redis;
 	}
 }
