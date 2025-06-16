@@ -42,7 +42,7 @@ userSubscriptionsRouter.get('/list', async (req, res) => {
     const subscription = await getUserSubscription(userId);
     try{
     if (!subscription) {
-        res.status(404).json({ error: 'No subscription found for this user' });
+        res.status(204).json([]);
         return;
     }
     console.log('User subscription details:', subscription);

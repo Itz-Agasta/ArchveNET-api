@@ -26,11 +26,13 @@ webhook.post("/clerk/registered", async (req, res) => {
 	res.status(200).json({ message: "User registration received" });
 });
 
-webhook.post("/payments/web3", auth, async (req, res) => {
+webhook.post("/payments/web3", async (req, res) => {
 	const txHash = req.body.txHash;
 	const userId = req.userId;
 	const subscriptionPlan = req.body.subscriptionPlan;
 	const quotaLimit = req.body.quotaLimit || 1000; // Default quota limit if not provided
+
+	console.log('Receieved payment webhook:✅')
 
 	if (!userId) {
 	res.status(401).json({ error: "Unauthorized" });
@@ -51,11 +53,12 @@ webhook.post("/payments/web3", auth, async (req, res) => {
 	// Verify the transaction using Etherscan API
 	const verifyTxn = await verifyTransaction(txHash);
 	const result = verifyTxn.result;
+	console.log(result.data);
 	if(result.isError === "0"){
 		const findSubscription = await getUserSubscription(userId);
 		if(findSubscription) {
 			//If the user already has a subscription, update it
-			const subscription = await updateUserSubscription( userId, {
+			await updateUserSubscription( userId, {
 				plan: subscriptionPlan,
 				quotaLimit,
 				isActive: true,
@@ -63,11 +66,11 @@ webhook.post("/payments/web3", auth, async (req, res) => {
 				quotaUsed: 0	
 			})
 			console.log("User subscription updated", userId);
-			res.status(200).json(subscription[0]);
+			res.status(200).json({ message: "Subscription updated", userId});
 			return;
 		}
 		// If the user does not have a subscription, create a new one
-		const subscription = await createUserSubscription({
+		await createUserSubscription({
 			clerkUserId: userId,
 			plan: subscriptionPlan,
 			quotaLimit,
@@ -75,9 +78,9 @@ webhook.post("/payments/web3", auth, async (req, res) => {
 			renewsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // Set renewsAt to 30 days from now
 		});
 		console.log("User subscription created", userId);
-		res.status(200).json(subscription[0]);
+		res.status(200).json({ message: "Subscription created", userId });
 		return;
-
+		
 	}else{
 		console.error("Transaction error");
 		res.status(400).json({ txHash, error: result.errDescription });

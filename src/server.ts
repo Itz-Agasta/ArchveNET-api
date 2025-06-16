@@ -45,7 +45,7 @@ initializeServices()
 		// Dynamic route imports ensure services are initialized before route handlers
 		let auth = (_req: any, _res: any, next: any) => next(); // Default noop middleware
 
-		if (process.env.CLERK_JWKS_URI && process.env.NODE_ENV !== "development") {
+		if (process.env.CLERK_JWKS_URI || process.env.NODE_ENV !== "development") {
 			try {
 				const authModule = await import("./middlewares/auth.js");
 				auth = authModule.auth;
@@ -116,11 +116,11 @@ initializeServices()
 		app.use("/admin", adminRoutes.default); // Admin-only vector database operations
 		app.use("/memories", memoryRoutes.default); // User-facing semantic memory API
 		app.use("/deploy", deploymentRoutes.default); // Smart contract deployment
-		app.use("/webhook", webhookRoutes.webhook); // Payment gateway webhooks
+		app.use("/webhook", auth, webhookRoutes.webhook); // Payment gateway webhooks
 		app.use("/apiKey", apiKeyRouter); // API key management
 		app.use("/user", userRouter); // User account management
 		app.use("/user_subscriptions", auth, userSubscriptionsRouter); // Subscription management
-		app.use("/etherscan", auth, etherScanRouter);
+		app.use("/etherscan", etherScanRouter);
 
 		// Global error handling middleware (must be last)
 		app.use(errorHandler);

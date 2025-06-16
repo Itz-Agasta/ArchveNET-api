@@ -60,7 +60,7 @@ apiKeyRouter.get('/list', async (req, res) => {
         }
         const apiKeys = await listApiKeys(userId);
         if (apiKeys.length === 0) {
-            res.status(404).json({ error: 'No API Keys found for this user' });
+            res.status(204).json([]);
         }
         res.status(200).json(apiKeys);
     } catch (error) {
