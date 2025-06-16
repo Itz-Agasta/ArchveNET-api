@@ -5,7 +5,6 @@
  *
  * - Detection and connectivity testing for local Arweave gateway (Arlocal)
  * - Production wallet validation and address verification
- * - Persistent Redis connection management for application caching
  * - Health check utilities for status monitoring and diagnostics
  */
 
@@ -68,70 +67,6 @@ export async function validateWalletAddress(
 }
 
 /**
- * Initializes Redis connection if REDIS_URL is provided
- *
- * Creates a resilient Redis connection with automatic reconnection capabilities.
- * The connection includes proper error handling, reconnection logic, and
- * connection monitoring for production stability.
- *
- * @returns Promise<Redis | undefined> - Redis instance if connection successful, undefined otherwise
- * @throws Never throws - all errors are caught and logged as warnings
- *
- * @usage
- * - `src/config/arweave.ts` - Used during Arweave initialization to set up caching layer
- *
- */
-export async function initializeRedis(): Promise<Redis | undefined> {
-	if (!process.env.REDIS_URL) {
-		console.log("No REDIS_URL provided, proceeding without Redis cache");
-		return undefined;
-	}
-
-	console.log("Attempting to connect to Redis.....");
-
-	try {
-		const redis = new Redis(process.env.REDIS_URL, {
-			// Connection settings
-			connectTimeout: 10000,
-			commandTimeout: 5000,
-			lazyConnect: false,
-			maxRetriesPerRequest: 2,
-			enableAutoPipelining: true,
-		});
-
-		// Track connection state to prevent spam
-		let hasLoggedDisconnection = false;
-
-		redis.on("ready", () => {
-			console.log("✅ Redis connected successfully for caching");
-			hasLoggedDisconnection = false; // Reset flag when connected
-		});
-
-		redis.on("error", (err) => {
-			// Only log disconnect once until reconnection
-			if (!hasLoggedDisconnection) {
-				console.warn("⚠️ Redis connection lost");
-				hasLoggedDisconnection = true;
-			}
-		});
-
-		// Suppress other events (connect, reconnecting, close, end)
-
-		// Test initial connection
-		await redis.ping();
-		console.log("Redis ping successful - connection established");
-
-		return redis;
-	} catch (error) {
-		console.warn(
-			"❌ Redis initial connection failed, proceeding without cache:",
-			error,
-		);
-		return undefined;
-	}
-}
-
-/**
  * Checks Redis connectivity without creating a persistent connection
  *
  * This function performs a lightweight connectivity test to Redis without
@@ -184,10 +119,10 @@ export async function checkRedisConnectivity(): Promise<{
 		return result;
 	}
 
-	try {
-		// Create a temporary Redis connection just for testing
-		const testRedis = new Redis(redisUrl);
+	// Create a temporary Redis connection just for testing
+	const testRedis = new Redis(redisUrl);
 
+	try {
 		// Add error handler to prevent unhandled error events
 		testRedis.on("error", () => {
 			// Suppress errors - we're handling them in the catch block
@@ -200,9 +135,6 @@ export async function checkRedisConnectivity(): Promise<{
 				setTimeout(() => reject(new Error("Connection timeout")), 2000),
 			),
 		]);
-
-		// Immediately close the test connection
-		testRedis.disconnect();
 
 		const result = {
 			configured: true,
@@ -225,5 +157,10 @@ export async function checkRedisConnectivity(): Promise<{
 		// Cache the result
 		healthCheckCache = { result, timestamp: Date.now() };
 		return result;
+	} finally {
+		// Always close the test connection to prevent socket leaks
+		if (testRedis) {
+			testRedis.disconnect();
+		}
 	}
 }
