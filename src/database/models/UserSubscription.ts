@@ -13,14 +13,15 @@ export async function createUserSubscription(subscriptionData: {
     quotaUsed?: number;
     isActive?: boolean;
     renewsAt: Date;
-}): Promise<void> {
+}): Promise<NewUserSubscription[]> {
     const data: NewUserSubscription = {
         ...subscriptionData,
         quotaUsed: subscriptionData.quotaUsed ?? 0,
         isActive: subscriptionData.isActive ?? true,
     };
 
-    await db.insert(userSubscriptionTable).values(data);
+    const subscription = await db.insert(userSubscriptionTable).values(data).returning();
+    return subscription;
 }
 
 export async function getUserSubscription(

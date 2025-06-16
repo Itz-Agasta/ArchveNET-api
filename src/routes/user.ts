@@ -1,6 +1,5 @@
 import express from 'express';
 import { createUser, deleteUser, getUserByClerkId, updateUser } from '../database/models/User.js';
-import { auth } from '../middlewares/auth.js';
 
 export const userRouter = express.Router();
 
@@ -27,7 +26,7 @@ userRouter.use("/create", async (req, res) => {
   }
 })
 
-userRouter.post('/info', auth, async (req, res) => {
+userRouter.post('/info', async (req, res) => {
   const userId = req.body.userId;
   console.log(req.body);
 

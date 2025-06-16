@@ -23,17 +23,19 @@ const getKey: jwt.GetPublicKeyOrSecret = (header, callback) => {
     });
 };
 
-export const auth = (req: Request, res: Response, next: NextFunction) => {
+export const auth = (req: Request, res: Response, next: NextFunction): void => {
     const authHeader = req.headers["authorization"];
     const token = authHeader?.split(" ")[1];
 
     if (!token) {
-        return res.status(401).json({ message: "No token provided" });
+        res.status(401).json({ message: "No token provided" });
+        return;
     }
 
     jwt.verify(token, getKey, { algorithms: ["RS256"] }, (err, decoded) => {
         if (err || !decoded || typeof decoded === "string") {
-            return res.status(403).json({ message: "JWT verification failed" });
+            res.status(403).json({ message: "JWT verification failed" });
+            return;
         }
         req.userId = (decoded as JwtPayload).sub;
         next();
