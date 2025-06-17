@@ -12,6 +12,7 @@ import type {
 import {
 	checkWalletBalance,
 	getWalletRechargeInstructions,
+	logWalletBalanceAfterOperation,
 } from "../utils/helper.js";
 
 export interface EizenSearchResult {
@@ -201,6 +202,13 @@ Command: ${rechargeInfo.instructions}`,
 
 			console.log(`Eizen contract deployed successfully: ${contractTxId}`);
 
+			// Check wallet balance after successful deployment
+			await logWalletBalanceAfterOperation(
+				arweaveConfig.warp,
+				arweaveConfig.wallet,
+				"deployment",
+			);
+
 			return { contractId: contractTxId };
 		} catch (error) {
 			console.error("Failed to deploy contract:", error);
@@ -376,6 +384,14 @@ Command: ${rechargeInfo.instructions}`,
 				`Vector inserted successfully with estimated ID: ${vectorId}`,
 			);
 
+			// Check wallet balance after successful insert
+			const arweaveConfig = await EizenService.getSharedArweaveConfig();
+			await logWalletBalanceAfterOperation(
+				arweaveConfig.warp,
+				arweaveConfig.wallet,
+				"insert",
+			);
+
 			return {
 				success: true,
 				vectorId, // For now it will always return 0
@@ -401,6 +417,8 @@ Command: ${rechargeInfo.instructions}`,
 	 * @param data.k - Number of nearest neighbors to return (must be > 0)
 	 * @returns Promise resolving to array of similar vectors with distances and metadata
 	 *
+	 *@Note This operation doesn't cost any AR tokens
+
 	 * @example
 	 * ```typescript
 	 * // Find 5 most similar vectors

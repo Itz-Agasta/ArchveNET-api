@@ -216,6 +216,31 @@ export async function checkWalletBalance(
 }
 
 /**
+ * Logs wallet balance after an operation with a descriptive message
+ *
+ * @param warp - Warp instance for balance checking
+ * @param wallet - JWK wallet object
+ * @param operationType - Description of the operation (e.g., "deployment", "insert", "search")
+ */
+export async function logWalletBalanceAfterOperation(
+	warp: Warp,
+	wallet: JWKInterface,
+	operationType: string,
+): Promise<void> {
+	try {
+		const balanceInfo = await checkWalletBalance(warp, wallet);
+		console.log(
+			`Wallet balance after ${operationType}: ${balanceInfo.readableBalance} AR (${balanceInfo.walletAddress})`,
+		);
+	} catch (balanceError) {
+		console.warn(
+			`Could not check wallet balance after ${operationType}:`,
+			balanceError,
+		);
+	}
+}
+
+/**
  * Provides wallet recharge instructions based on the current environment
  *
  * @param walletAddress - The wallet address to recharge
