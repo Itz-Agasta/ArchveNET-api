@@ -1,6 +1,9 @@
 import { type Request, type Response, Router } from "express";
 import { validateData } from "../middlewares/validate.js";
-import { insertVectorSchema, searchVectorSchema } from "../schemas/eizen.js";
+import {
+	adminInsertVectorSchema,
+	adminSearchVectorSchema,
+} from "../schemas/eizen.js";
 import { EizenService } from "../services/EizenService.js";
 import { errorResponse, successResponse } from "../utils/responses.js";
 
@@ -11,38 +14,46 @@ import { errorResponse, successResponse } from "../utils/responses.js";
  * for administrative purposes only. They are NOT intended for public use.
  *
  * Access Level: ADMIN ONLY
- * Authentication: Environment-based (EIZEN_CONTRACT_ID)
+ * Authentication: Flexible contract ID (request body/query params or environment)
+ *
+ * Contract ID Options:
+ * 1. Include 'contractId' in request body (POST routes) or query params (GET routes)
+ * 2. Set EIZEN_CONTRACT_ID environment variable as fallback
+ * 3. If neither provided, operation will fail with clear error message
  *
  * Use Cases:
- * - Direct vector manipulation for testing
- * - Database administration and monitoring
+ * - Direct vector manipulation for testing with different contracts
+ * - Database administration and monitoring across multiple contracts
  * - System debugging and maintenance
  * - Contract deployment for new instances
  *
  * Security Note: These endpoints bypass user authentication and operate
- * directly on the configured admin contract. (Will private this endpoint later)
+ * directly on the specified contract. (Will private this endpoint later)
  */
 
 const router = Router();
 
 /**
  * Get admin Eizen service instance
- * Uses the contract ID from environment variables for admin operations
+ * Uses the contract ID from request body or environment variables for admin operations
  *
- * @param req - Express request object (unused, kept for consistency)
+ * @param contractId - Optional contract ID from request body
  * @returns Promise<EizenService> - Admin Eizen service instance
- * @throws Error if EIZEN_CONTRACT_ID is not configured
+ * @throws Error if no contract ID is provided in request or environment
  */
-async function getAdminEizenService(req: Request): Promise<EizenService> {
-	const contractId = process.env.EIZEN_CONTRACT_ID;
+async function getAdminEizenService(
+	contractId?: string,
+): Promise<EizenService> {
+	// Use contractId from request body if provided, otherwise fallback to environment
+	const finalContractId = contractId || process.env.EIZEN_CONTRACT_ID;
 
-	if (!contractId) {
+	if (!finalContractId) {
 		throw new Error(
-			"EIZEN_CONTRACT_ID not set in environment variables. Admin operations are limited. Please configure the admin contract ID to enable full functionality.",
+			"Contract ID not provided. Please include 'contractId' in your request body or set EIZEN_CONTRACT_ID in environment variables.",
 		);
 	}
 
-	return await EizenService.forContract(contractId);
+	return await EizenService.forContract(finalContractId);
 }
 
 /**
@@ -54,7 +65,8 @@ async function getAdminEizenService(req: Request): Promise<EizenService> {
  * Request body:
  * {
  *   "vector": [0.1, 0.2, 0.3, ...],  // Raw vector data (float array)
- *   "metadata": { "key": "value", ... } // Optional metadata object
+ *   "metadata": { "key": "value", ... }, // Optional metadata object
+ *   "contractId": "your-contract-id"  // Optional contract ID (fallback to env variable)
  * }
  *
  * Response:
@@ -64,26 +76,31 @@ async function getAdminEizenService(req: Request): Promise<EizenService> {
  *   "message": "Vector inserted successfully"
  * }
  */
-router.post("/insert", validateData(insertVectorSchema), async (req, res) => {
-	try {
-		const eizenService = await getAdminEizenService(req);
-		const result = await eizenService.insertVector(req.body);
+router.post(
+	"/insert",
+	validateData(adminInsertVectorSchema),
+	async (req, res) => {
+		try {
+			const { contractId, ...vectorData } = req.body;
+			const eizenService = await getAdminEizenService(contractId);
+			const result = await eizenService.insertVector(vectorData);
 
-		res
-			.status(201)
-			.json(successResponse(result, "Vector inserted successfully"));
-	} catch (error) {
-		console.error("Admin vector insert error:", error);
-		res
-			.status(500)
-			.json(
-				errorResponse(
-					"Failed to insert vector",
-					error instanceof Error ? error.message : "Unknown error",
-				),
-			);
-	}
-});
+			res
+				.status(201)
+				.json(successResponse(result, "Vector inserted successfully"));
+		} catch (error) {
+			console.error("Admin vector insert error:", error);
+			res
+				.status(500)
+				.json(
+					errorResponse(
+						"Failed to insert vector",
+						error instanceof Error ? error.message : "Unknown error",
+					),
+				);
+		}
+	},
+);
 
 /**
  * POST /admin/search
@@ -94,7 +111,8 @@ router.post("/insert", validateData(insertVectorSchema), async (req, res) => {
  * Request body:
  * {
  *   "query": [0.1, 0.2, 0.3, ...],  // Query vector (float array)
- *   "k": 10                         // Number of results (optional, defaults to 10)
+ *   "k": 10,                        // Number of results (optional, defaults to 10)
+ *   "contractId": "your-contract-id" // Optional contract ID (fallback to env variable)
  * }
  *
  * Response:
@@ -107,26 +125,31 @@ router.post("/insert", validateData(insertVectorSchema), async (req, res) => {
  *   "message": "Found 2 similar vectors"
  * }
  */
-router.post("/search", validateData(searchVectorSchema), async (req, res) => {
-	try {
-		const eizenService = await getAdminEizenService(req);
-		const results = await eizenService.searchVectors(req.body);
+router.post(
+	"/search",
+	validateData(adminSearchVectorSchema),
+	async (req, res) => {
+		try {
+			const { contractId, ...searchData } = req.body;
+			const eizenService = await getAdminEizenService(contractId);
+			const results = await eizenService.searchVectors(searchData);
 
-		res.json(
-			successResponse(results, `Found ${results.length} similar vectors`),
-		);
-	} catch (error) {
-		console.error("Admin vector search error:", error);
-		res
-			.status(500)
-			.json(
-				errorResponse(
-					"Failed to search vectors",
-					error instanceof Error ? error.message : "Unknown error",
-				),
+			res.json(
+				successResponse(results, `Found ${results.length} similar vectors`),
 			);
-	}
-});
+		} catch (error) {
+			console.error("Admin vector search error:", error);
+			res
+				.status(500)
+				.json(
+					errorResponse(
+						"Failed to search vectors",
+						error instanceof Error ? error.message : "Unknown error",
+					),
+				);
+		}
+	},
+);
 
 /**
  * GET /admin/vector/:id
@@ -136,6 +159,9 @@ router.post("/search", validateData(searchVectorSchema), async (req, res) => {
  *
  * URL Parameters:
  * - id: Vector ID (integer)
+ *
+ * Query Parameters:
+ * - contractId: Optional contract ID (fallback to env variable)
  *
  * Response:
  * {
@@ -152,7 +178,8 @@ router.get(
 	"/vector/:id",
 	async (req: Request, res: Response): Promise<void> => {
 		try {
-			const eizenService = await getAdminEizenService(req);
+			const contractId = req.query.contractId as string;
+			const eizenService = await getAdminEizenService(contractId);
 			const vectorId = Number.parseInt(req.params.id, 10);
 
 			if (Number.isNaN(vectorId)) {
@@ -199,6 +226,9 @@ router.get(
  *
  * Admin Use Case: Monitor database health, storage metrics, and performance stats
  *
+ * Query Parameters:
+ * - contractId: Optional contract ID (fallback to env variable)
+ *
  * Response:
  * {
  *   "success": true,
@@ -213,7 +243,8 @@ router.get(
  */
 router.get("/", async (req, res) => {
 	try {
-		const eizenService = await getAdminEizenService(req);
+		const contractId = req.query.contractId as string;
+		const eizenService = await getAdminEizenService(contractId);
 		const stats = await eizenService.getStats();
 
 		res.json(successResponse(stats, "Database statistics retrieved"));
@@ -236,15 +267,15 @@ router.get("/", async (req, res) => {
  *
  * Admin Use Case: Deploy new contract instances for system scaling or testing
  *
+ * Note: This operation creates a new contract on Arweave blockchain.
+ * No contractId needed as this creates a new contract.
+ *
  * Response:
  * {
  *   "success": true,
  *   "data": { "contractTxId": "abc123..." },
  *   "message": "Eizen contract deployed successfully"
  * }
- *
- * Note: This operation creates a new contract on Arweave blockchain
- * and returns the transaction ID for the deployed contract.
  */
 router.post("/deploy", async (req, res) => {
 	try {

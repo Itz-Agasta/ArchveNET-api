@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { EizenDbVector } from "eizen";
 import { SetSDK } from "hollowdb";
 import { type ArweaveConfig, initializeArweave } from "../config/arweave.js";
@@ -7,6 +9,10 @@ import type {
 	VectorEmbedding,
 	VectorMetadata,
 } from "../schemas/eizen.js";
+import {
+	checkWalletBalance,
+	getWalletRechargeInstructions,
+} from "../utils/helper.js";
 
 export interface EizenSearchResult {
 	id: number;
@@ -121,11 +127,77 @@ export class EizenService {
 		try {
 			console.log("Deploying new Eizen contract...");
 
-			// Deploy new contract to Arweave
-			const { contractTxId } = await EizenDbVector.deploy(
-				arweaveConfig.wallet,
+			// Check wallet balance before attempting deployment
+			const balanceInfo = await checkWalletBalance(
 				arweaveConfig.warp,
+				arweaveConfig.wallet,
 			);
+			console.log(
+				`Wallet balance check: ${balanceInfo.readableBalance} AR (${balanceInfo.walletAddress})`,
+			);
+
+			if (!balanceInfo.hasBalance) {
+				const rechargeInfo = getWalletRechargeInstructions(
+					balanceInfo.walletAddress,
+				);
+
+				if (!rechargeInfo.isProduction) {
+					throw new Error(
+						`Insufficient wallet balance for deployment. Current balance: ${balanceInfo.readableBalance} AR. ` +
+							`💡 Dev tip: ${rechargeInfo.tip}
+Command: ${rechargeInfo.instructions}`,
+					);
+				}
+
+				throw new Error(
+					`Insufficient wallet balance for deployment. Current balance: ${balanceInfo.readableBalance} AR. ${rechargeInfo.instructions}`,
+				);
+			}
+
+			const isProduction = process.env.NODE_ENV === "production";
+
+			let contractTxId: string;
+
+			if (isProduction) {
+				// Production: Use EizenDbVector.deploy() for mainnet
+				const result = await EizenDbVector.deploy(
+					arweaveConfig.wallet,
+					arweaveConfig.warp,
+				);
+				contractTxId = result.contractTxId;
+			} else {
+				// Development with Arlocal Use warp.deploy() with embedded contract source
+				console.log("Using Arlocal TestNet for deployment");
+
+				// Read contract source and state from data folder
+				const contractSource = readFileSync(
+					join(process.cwd(), "data", "contract.js"),
+					"utf8",
+				);
+				const initialState = JSON.parse(
+					readFileSync(join(process.cwd(), "data", "state.json"), "utf8"),
+				);
+
+				// Set the owner to our wallet address
+				const walletAddress =
+					await arweaveConfig.warp.arweave.wallets.getAddress(
+						arweaveConfig.wallet,
+					);
+				initialState.owner = walletAddress;
+
+				const result = await arweaveConfig.warp.deploy({
+					wallet: arweaveConfig.wallet,
+					initState: JSON.stringify(initialState),
+					src: contractSource,
+					evaluationManifest: {
+						evaluationOptions: {
+							allowBigInt: true,
+							useKVStorage: true,
+						},
+					},
+				}); // testnet uses bundling
+				contractTxId = result.contractTxId;
+			}
 
 			console.log(`Eizen contract deployed successfully: ${contractTxId}`);
 

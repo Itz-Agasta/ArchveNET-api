@@ -62,8 +62,8 @@ export interface ArweaveConfig {
 export async function initializeArweave(): Promise<ArweaveConfig> {
 	const isProduction = process.env.NODE_ENV?.trim() === "production";
 
-	// Initialize Redis connection only in production mode
-	const redis = isProduction ? await initializeRedis() : undefined;
+	// Initialize Redis connection for both production and development
+	const redis = await initializeRedis();
 
 	// Create Warp instance with appropriate network
 	let warp: Warp;
@@ -88,9 +88,20 @@ export async function initializeArweave(): Promise<ArweaveConfig> {
 		const isArLocalRunning = await checkArLocalRunning(ARLOCAL_PORT);
 
 		if (isArLocalRunning) {
-			warp = WarpFactory.forLocal(ARLOCAL_PORT);
+			warp = redis
+				? WarpFactory.forLocal(ARLOCAL_PORT).useKVStorageFactory(
+						(contractTxId: string) =>
+							new RedisCache(
+								{ ...defaultCacheOptions, dbLocation: `${contractTxId}` },
+								{ client: redis },
+							),
+					)
+				: WarpFactory.forLocal(ARLOCAL_PORT);
 			console.log(
 				`Configured for ArLocal development server on localhost:${ARLOCAL_PORT}`,
+			);
+			console.warn(
+				"⚠️ search routes may not function properly without Redis in ArLocal",
 			);
 		} else {
 			console.warn(`ArLocal not running on localhost:${ARLOCAL_PORT}`);
@@ -101,7 +112,15 @@ export async function initializeArweave(): Promise<ArweaveConfig> {
 			// FALLBACK: Use testnet when ArLocal is unavailable
 			// NOTE: Some endpoints may not work correctly in testnet mode,
 			// especially those requiring contract state mutations or real bundling.
-			warp = WarpFactory.forTestnet(undefined, true);
+			warp = redis
+				? WarpFactory.forTestnet(undefined, true).useKVStorageFactory(
+						(contractTxId: string) =>
+							new RedisCache(
+								{ ...defaultCacheOptions, dbLocation: `${contractTxId}` },
+								{ client: redis },
+							),
+					)
+				: WarpFactory.forTestnet(undefined, true);
 		}
 	}
 
