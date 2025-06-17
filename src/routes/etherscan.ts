@@ -1,5 +1,5 @@
 import express from 'express';
-import { verifyTransaction } from '../utils/etherScan';
+import { verifyTransaction } from '../utils/etherScan.js';
 
 export const etherScanRouter = express.Router();
 

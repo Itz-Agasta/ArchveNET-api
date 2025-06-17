@@ -2,7 +2,6 @@ import { type Request, type Response, Router } from "express";
 import { EizenService } from "../services/EizenService.js";
 import { errorResponse, successResponse } from "../utils/responses.js";
 import { getUserSubscription } from "../database/models/UserSubscription.js";
-import { createApiKey } from "../database/models/ApiKey.js";
 import { randomUUID } from "crypto";
 
 //Payment webhook contract deployment
@@ -33,7 +32,7 @@ const router = Router();
  * TODO: Add logging for deployment tracking
  * TODO: Consider adding deployment status tracking in DB (idk, try it if y can)
  */
-router.get("/contract", async (req: Request, res: Response) => {
+router.post("/contract", async (req: Request, res: Response) => {
 	try {
 		const userId = req.userId;
 		if(!userId) {
@@ -59,11 +58,11 @@ router.get("/contract", async (req: Request, res: Response) => {
 		const deployResult = await EizenService.deployNewContract();
 		const contractTxId = deployResult.contractId;
 		if(!contractTxId) {
-   res.status(500).json({
-	message: "Failed to deploy contract on Arweave"
-	   });
-   return;
-  }
+			res.status(500).json({
+				message: "Failed to deploy contract on Arweave"
+				});
+			return;
+  		}
 		// TODO: Log deployment for audit trail
 		console.log(`Contract deployed for user ${userId}: ${contractTxId}`);
 
@@ -125,9 +124,9 @@ router.get("/status/:contractId", async (req: Request, res: Response) => {
 		);
 });
 
-router.get('/contract/test', async (req: Request, res: Response) => {
+router.post('/contract/test', async (req: Request, res: Response) => {
 	try {
-		const userId = req.userId;
+		const userId = req.userId || "user_2yadqXNQsdsIB6lqZwBeq1VtSWp"; // For testing, use hardcoded user id
 		if(!userId) {
 			res.status(400).json({
 				message: "User ID is required for contract deployment"
