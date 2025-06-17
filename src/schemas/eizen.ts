@@ -43,6 +43,22 @@ export const insertVectorSchema = z
 	})
 	.describe("Schema for Eizen.insert(vector, metadata) method");
 
+/** Admin insert vector request - includes optional contractId for admin operations */
+export const adminInsertVectorSchema = z
+	.object({
+		vector: vectorEmbeddingSchema,
+		metadata: vectorMetadataSchema,
+		contractId: z
+			.string()
+			.optional()
+			.describe(
+				"Optional contract ID for admin operations. If not provided, uses EIZEN_CONTRACT_ID from environment",
+			),
+	})
+	.describe(
+		"Schema for admin Eizen.insert(vector, metadata) method with optional contractId",
+	);
+
 /** Search vector request - semantic search through Eizen vector database
 Example: Finding similar memories to "color preferences":
 {
@@ -60,7 +76,25 @@ export const searchVectorSchema = z
 	})
 	.describe("Schema for Eizen.knn_search(query, k) method");
 
+/** Admin search vector request - includes optional contractId for admin operations */
+export const adminSearchVectorSchema = z
+	.object({
+		query: vectorEmbeddingSchema,
+		k: z.number().int().min(1).max(50).default(10),
+		contractId: z
+			.string()
+			.optional()
+			.describe(
+				"Optional contract ID for admin operations. If not provided, uses EIZEN_CONTRACT_ID from environment",
+			),
+	})
+	.describe(
+		"Schema for admin Eizen.knn_search(query, k) method with optional contractId",
+	);
+
 export type VectorEmbedding = z.infer<typeof vectorEmbeddingSchema>;
 export type VectorMetadata = z.infer<typeof vectorMetadataSchema>;
 export type InsertVector = z.infer<typeof insertVectorSchema>;
 export type SearchVector = z.infer<typeof searchVectorSchema>;
+export type AdminInsertVector = z.infer<typeof adminInsertVectorSchema>;
+export type AdminSearchVector = z.infer<typeof adminSearchVectorSchema>;
