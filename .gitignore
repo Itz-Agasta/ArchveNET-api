@@ -40,6 +40,8 @@ Thumbs.db
 # Logs, cache
 logs/
 *.log
+.log
+.logs
 cache/
 dump.rdb
 
