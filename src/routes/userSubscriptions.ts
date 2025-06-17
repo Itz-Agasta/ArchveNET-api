@@ -13,13 +13,18 @@ userSubscriptionsRouter.post('/create', async (req, res) => {
             res.status(400).json({ error: 'Missing required fields' });
             return;
         }
+        const existingSubscription = await getUserSubscription(userId);
+        if (existingSubscription) {
+            res.status(400).json({ error: 'User already has an active subscription' });
+            return;
+        }
         const subscription = await createUserSubscription({
             clerkUserId: userId,
             plan: subscriptionPlan,
             quotaLimit,
             renewsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)}); // Set renewsAt to 30 days from now
-        console.log('User subscription updated:', subscription);
-        res.status(200).json({message: 'User subscription update received'});
+        console.log('User subscription created:', userId);
+        res.status(201).json(subscription[0]);
     }
     catch(err){
             console.error('Error creating user subscription:', err);
@@ -27,16 +32,21 @@ userSubscriptionsRouter.post('/create', async (req, res) => {
     }        
 })
 
-userSubscriptionsRouter.get('/list/:userId', async (req, res) => {
-    const userId = req.params.userId;
+userSubscriptionsRouter.get('/list', async (req, res) => {
+    // userId will be decoded from the JWT token in the auth middleware
+    const userId = req.userId;
+    if(!userId) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+    }
     const subscription = await getUserSubscription(userId);
     try{
     if (!subscription) {
-        res.status(404).json({ error: 'No subscription found for this user' });
+        res.status(204).json([]);
         return;
     }
     console.log('User subscription details:', subscription);
-    res.status(200).json({ message: 'List of user subscriptions' });
+    res.status(200).json(subscription);
     }catch(err){
         console.error('Error fetching user subscription:', err);
         res.status(500).json({ error: 'Internal server error' });
@@ -54,7 +64,7 @@ userSubscriptionsRouter.put('/update/:userId', async (req, res) => {
             return;
         }
         console.log('User subscription updated:', updatedSubscription);
-        res.status(200).json(updatedSubscription);
+        res.status(201).json(updatedSubscription);
     } catch (err) {
         console.error('Error updating user subscription:', err);
         res.status(500).json({ error: 'Internal server error' });

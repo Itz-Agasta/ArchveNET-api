@@ -1,7 +1,8 @@
 import express from "express";
-import { createUser } from "../database/models/User.js";
-import { createUserSubscription } from "../database/models/UserSubscription.js";
+import { createUser, getUserByClerkId } from "../database/models/User.js";
+import { createUserSubscription, getUserSubscription, updateUserSubscription } from "../database/models/UserSubscription.js";
 import { auth } from "../middlewares/auth.js";
+import { verifyTransaction } from "../utils/etherScan.js";
 
 export const webhook = express.Router();
 
@@ -25,29 +26,63 @@ webhook.post("/clerk/registered", async (req, res) => {
 	res.status(200).json({ message: "User registration received" });
 });
 
-webhook.post("/payments/web3", auth, async (req, res) => {
-	const txnId = req.body.transactionId;
+webhook.post("/payments/web3", async (req, res) => {
+	const txHash = req.body.txHash;
 	const userId = req.userId;
 	const subscriptionPlan = req.body.subscriptionPlan;
 	const quotaLimit = req.body.quotaLimit || 1000; // Default quota limit if not provided
 
-	if (!txnId || !userId || !subscriptionPlan) {
+	console.log('Receieved payment webhook:✅')
+
+	if (!userId) {
+	res.status(401).json({ error: "Unauthorized" });
+	return;
+	}
+
+	// check if user actually exists
+	const user = await getUserByClerkId(userId);
+	if(!user){
+		res.status(404).json({ error: "User not found" });
+		return;
+	}
+
+	if (!txHash || !userId || !subscriptionPlan) {
 		res.status(400).json({ error: "Missing required fields" });
 		return;
 	}
-	const subscription = await createUserSubscription({
-		clerkUserId: userId,
-		plan: subscriptionPlan,
-		quotaLimit,
-		renewsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // Set renewsAt to 30 days from now
-	});
-
-	console.log("User subscription updated:", subscription);
-	res.status(200).json({ message: "User subscription update received" });
-});
-
-webhook.post("/user/deleted", (req, res) => {
-	// Handle user deletion webhook
-	console.log("User deleted:", req.body);
-	res.status(200).send("User deletion received");
+	// Verify the transaction using Etherscan API
+	const verifyTxn = await verifyTransaction(txHash);
+	const result = verifyTxn.result;
+	console.log(result.data);
+	if(result.isError === "0"){
+		const findSubscription = await getUserSubscription(userId);
+		if(findSubscription) {
+			//If the user already has a subscription, update it
+			await updateUserSubscription( userId, {
+				plan: subscriptionPlan,
+				quotaLimit,
+				isActive: true,
+				renewsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // Set renewsAt to 30 days from now	
+				quotaUsed: 0	
+			})
+			console.log("User subscription updated", userId);
+			res.status(200).json({ message: "Subscription updated", userId});
+			return;
+		}
+		// If the user does not have a subscription, create a new one
+		await createUserSubscription({
+			clerkUserId: userId,
+			plan: subscriptionPlan,
+			quotaLimit,
+			isActive: true,
+			renewsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // Set renewsAt to 30 days from now
+		});
+		console.log("User subscription created", userId);
+		res.status(200).json({ message: "Subscription created", userId });
+		return;
+		
+	}else{
+		console.error("Transaction error");
+		res.status(400).json({ txHash, error: result.errDescription });
+	}
 });

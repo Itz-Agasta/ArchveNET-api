@@ -1,6 +1,8 @@
 import { type Request, type Response, Router } from "express";
 import { EizenService } from "../services/EizenService.js";
 import { errorResponse, successResponse } from "../utils/responses.js";
+import { getUserSubscription } from "../database/models/UserSubscription.js";
+import { randomUUID } from "crypto";
 
 //Payment webhook contract deployment
 
@@ -32,26 +34,44 @@ const router = Router();
  */
 router.post("/contract", async (req: Request, res: Response) => {
 	try {
-		// TODO: Extract user information from webhook payload
-		// const { userId, userEmail, subscriptionTier } = req.body;
-
-		// TODO: Validate that user has valid payment/subscription
-		// const subscription = await validateUserSubscription(userId);
-
+		const userId = req.userId;
+		if(!userId) {
+			res.status(400).json({
+				message: "User ID is required for contract deployment"
+			   });
+   		   return;
+		}
+		// only verify subscription as payment is already verified when creating subscription
+		const user_subscription = await getUserSubscription(userId);
+		if(!user_subscription) {
+   			res.status(400).json({
+ 				message: "User subscription not found"})
+			return;
+		}
+		const subscriptionTier = user_subscription.plan;
+		  if(!subscriptionTier) {
+	  		res.status(400).json({
+	 			message: "User subscription tier not found"});
+			return;
+		}
 		// Deploy new Eizen contract on Arweave
 		const deployResult = await EizenService.deployNewContract();
 		const contractTxId = deployResult.contractId;
-
+		if(!contractTxId) {
+			res.status(500).json({
+				message: "Failed to deploy contract on Arweave"
+				});
+			return;
+  		}
 		// TODO: Log deployment for audit trail
-		// console.log(`Contract deployed for user ${userId}: ${contractTxId}`);
+		console.log(`Contract deployed for user ${userId}: ${contractTxId}`);
 
 		res.status(201).json(
 			successResponse(
 				{
 					contractTxId,
-					// TODO: Add additional deployment metadata
-					// deployedAt: new Date().toISOString(),
-					// userId: userId
+					userId,
+					deployedAt: new Date().toISOString(),
 				},
 				"Eizen contract deployed successfully",
 			),
@@ -79,7 +99,8 @@ router.post("/contract", async (req: Request, res: Response) => {
 				),
 			);
 	}
-});
+	}
+);
 
 /**
  * GET /deploy/status/:contractId
@@ -101,6 +122,48 @@ router.get("/status/:contractId", async (req: Request, res: Response) => {
 				"Status check endpoint not yet implemented",
 			),
 		);
+});
+
+router.post('/contract/test', async (req: Request, res: Response) => {
+	try {
+		const userId = req.userId || "user_2yadqXNQsdsIB6lqZwBeq1VtSWp"; // For testing, use hardcoded user id
+		if(!userId) {
+			res.status(400).json({
+				message: "User ID is required for contract deployment"
+			   });
+   		   return;
+		}
+		// only verify subscription as payment is already verified when creating subscription
+		const user_subscription = await getUserSubscription(userId);
+		if(!user_subscription) {
+   			res.status(400).json({
+ 				message: "User subscription not found"})
+			return;
+		}
+		const subscriptionTier = user_subscription.plan;
+		  if(!subscriptionTier) {
+	  		res.status(400).json({
+	 			message: "User subscription tier not found"});
+			return;
+		}
+		const testTxnId = randomUUID();
+		res.status(200).json({
+			contractTxId: testTxnId,
+			userId,
+			deployedAt: new Date().toISOString(),
+			message: "Test deployment successful",
+			});
+	}catch (error) {
+		  console.error("Test deployment error:", error);
+  res
+   .status(500)
+   .json(
+	errorResponse(
+	 "Failed to deploy contract",
+	 error instanceof Error ? error.message : "Unknown error",
+	),
+   );
+	}
 });
 
 export default router;

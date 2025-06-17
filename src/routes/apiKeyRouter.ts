@@ -5,16 +5,23 @@ import { db } from '../database/db.js';
 import { apiKeyTable } from '../database/schemas/apiKey.js';
 import { createApiKey, listApiKeys,  } from '../database/models/ApiKey.js';
 import { eq, and } from 'drizzle-orm';
+import { getUserSubscription } from '../database/models/UserSubscription.js';
 
 export const apiKeyRouter = express.Router();
 
-apiKeyRouter.post('/create', auth, async (req, res) => {
+apiKeyRouter.post('/create', async (req, res) => {
     const userId = req.userId;
     const name = req.body.name || 'Default API Key';
     const description = req.body.description || 'API Key for ArchiveNet';
     
     if (!userId) {
         res.status(401).json({ error: 'Unauthorized' });
+        return;
+    }
+    // Check if user has an active subscription before creating an API key
+    const user_subscription = await getUserSubscription(userId);
+    if(!user_subscription || !user_subscription.isActive) {
+        res.status(400).json({ error: 'User subscription not found' });
         return;
     }
     const key = generateApiKey(userId);
@@ -43,7 +50,7 @@ apiKeyRouter.post('/create', auth, async (req, res) => {
     }  
 })
 
-apiKeyRouter.get('/list', auth, async (req, res) => {
+apiKeyRouter.get('/list', async (req, res) => {
     const userId = req.userId;
 
     try {
@@ -53,7 +60,7 @@ apiKeyRouter.get('/list', auth, async (req, res) => {
         }
         const apiKeys = await listApiKeys(userId);
         if (apiKeys.length === 0) {
-            res.status(404).json({ error: 'No API Keys found for this user' });
+            res.status(204).json([]);
         }
         res.status(200).json(apiKeys);
     } catch (error) {
@@ -62,7 +69,7 @@ apiKeyRouter.get('/list', auth, async (req, res) => {
     }
 });
 
-apiKeyRouter.put('/update/:id', auth, async (req, res) => {
+apiKeyRouter.put('/update/:id', async (req, res) => {
     const userId = req.userId;
     const apiKeyId = req.params.id;
     const updates = req.body;
@@ -83,7 +90,7 @@ apiKeyRouter.put('/update/:id', auth, async (req, res) => {
         if (!updatedApiKey) {
             res.status(404).json({ error: 'API Key not found or already deleted' });
         }
-        res.status(200).json(updatedApiKey);
+        res.status(201).json(updatedApiKey);
     } catch (error) {
         console.error('Error updating API Key:', error);
         res.status(500).json({ error: 'Internal server error' });
