@@ -10,6 +10,7 @@
 
 import { Redis } from "ioredis";
 import type { JWKInterface } from "warp-contracts";
+import type { Warp } from "warp-contracts";
 
 /**
  * Checks if ArLocal is running on the specified port
@@ -169,4 +170,75 @@ export async function checkRedisConnectivity(): Promise<{
 			testRedis.disconnect();
 		}
 	}
+}
+
+/**
+ * Checks if a wallet has sufficient balance for contract deployment
+ *
+ * @param warp - The Warp instance to check balance with
+ * @param wallet - The wallet to check balance for
+ * @param requiredBalance - Minimum required balance in Winston (default: 0.1 AR)
+ * @returns Promise<{ hasBalance: boolean, currentBalance: string, walletAddress: string }>
+ */
+export async function checkWalletBalance(
+	warp: Warp,
+	wallet: JWKInterface,
+	requiredBalance = "100000000000", // 0.1 AR in Winston
+): Promise<{
+	hasBalance: boolean;
+	currentBalance: string;
+	walletAddress: string;
+	readableBalance: string;
+}> {
+	try {
+		const walletAddress = await warp.arweave.wallets.jwkToAddress(wallet);
+		const balance = await warp.arweave.wallets.getBalance(walletAddress); // Convert Winston to AR for display (1 AR = 1,000,000,000,000 Winston)
+		const readableBalance = (Number.parseInt(balance) / 1000000000000).toFixed(
+			6,
+		);
+
+		return {
+			hasBalance: Number.parseInt(balance) >= Number.parseInt(requiredBalance),
+			currentBalance: balance,
+			walletAddress,
+			readableBalance,
+		};
+	} catch (error) {
+		console.error("Error checking wallet balance:", error);
+		// If we can't check balance, assume it's insufficient
+		return {
+			hasBalance: false,
+			currentBalance: "0",
+			walletAddress: "unknown",
+			readableBalance: "0",
+		};
+	}
+}
+
+/**
+ * Provides wallet recharge instructions based on the current environment
+ *
+ * @param walletAddress - The wallet address to recharge
+ * @returns Object with recharge instructions and tips
+ */
+export function getWalletRechargeInstructions(walletAddress: string): {
+	instructions: string;
+	tip: string;
+	isProduction: boolean;
+} {
+	const isProduction = process.env.NODE_ENV?.trim() === "production";
+
+	if (isProduction) {
+		return {
+			instructions: "Please acquire AR tokens from an exchange",
+			tip: "For production deployment, ensure your wallet has sufficient AR tokens (typically at least 0.1 AR).",
+			isProduction: true,
+		};
+	}
+
+	return {
+		instructions: `curl -X GET "http://localhost:8080/mint/${walletAddress}/100000000000000"`,
+		tip: "This command adds 100 AR tokens to your wallet in the ArLocal development environment.",
+		isProduction: false,
+	};
 }
