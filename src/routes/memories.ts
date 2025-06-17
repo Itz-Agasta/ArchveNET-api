@@ -33,7 +33,7 @@ async function getUserMemoryService(req: Request): Promise<MemoryService> {
 }
 
 /**
- * POST /memories
+ * POST /memories/insert
  * Create a new memory from text content
  * This endpoint converts text to embeddings and stores in Eizen
  *
@@ -49,7 +49,7 @@ async function getUserMemoryService(req: Request): Promise<MemoryService> {
  *   }
  * }
  */
-router.post("/", validateData(createMemorySchema), async (req, res) => {
+router.post("/insert", validateData(createMemorySchema), async (req, res) => {
 	try {
 		const memoryService = await getUserMemoryService(req);
 		const result = await memoryService.createMemory(req.body);
@@ -175,48 +175,53 @@ router.post("/search", validateData(searchMemorySchema), async (req, res) => {
 });
 
 /**
- * GET /memories/:id
+ * GET /memories/search/:id
  * Get a specific memory by its vector ID
  */
-router.get("/:id", async (req: Request, res: Response): Promise<void> => {
-	try {
-		const memoryService = await getUserMemoryService(req);
-		const memoryId = Number.parseInt(req.params.id, 10);
+router.get(
+	"/search/:id",
+	async (req: Request, res: Response): Promise<void> => {
+		try {
+			const memoryService = await getUserMemoryService(req);
+			const memoryId = Number.parseInt(req.params.id, 10);
 
-		if (Number.isNaN(memoryId)) {
+			if (Number.isNaN(memoryId)) {
+				res
+					.status(400)
+					.json(
+						errorResponse("Invalid memory ID", "Memory ID must be a number"),
+					);
+				return;
+			}
+
+			const memory = await memoryService.getMemory(memoryId);
+
+			if (!memory) {
+				res
+					.status(404)
+					.json(
+						errorResponse(
+							"Memory not found",
+							`No memory found with ID: ${memoryId}`,
+						),
+					);
+				return;
+			}
+
+			res.json(successResponse(memory, "Memory retrieved successfully"));
+		} catch (error) {
+			console.error("Memory get error:", error);
 			res
-				.status(400)
-				.json(errorResponse("Invalid memory ID", "Memory ID must be a number"));
-			return;
-		}
-
-		const memory = await memoryService.getMemory(memoryId);
-
-		if (!memory) {
-			res
-				.status(404)
+				.status(500)
 				.json(
 					errorResponse(
-						"Memory not found",
-						`No memory found with ID: ${memoryId}`,
+						"Failed to retrieve memory",
+						error instanceof Error ? error.message : "Unknown error",
 					),
 				);
-			return;
 		}
-
-		res.json(successResponse(memory, "Memory retrieved successfully"));
-	} catch (error) {
-		console.error("Memory get error:", error);
-		res
-			.status(500)
-			.json(
-				errorResponse(
-					"Failed to retrieve memory",
-					error instanceof Error ? error.message : "Unknown error",
-				),
-			);
-	}
-});
+	},
+);
 
 /**
  * GET /memories
