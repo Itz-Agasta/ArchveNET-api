@@ -18,6 +18,8 @@ import helmet from "helmet";
 import { errorHandler } from "./middlewares/errorHandler.js";
 import { EizenService } from "./services/EizenService.js";
 import { embeddingService } from "./services/EmbeddingService.js";
+import { verifyContractHashMiddleware } from "./middlewares/contract.js";
+import { verifyContractHash } from "./utils/contractHash.js";
 
 dotenv.config();
 
@@ -61,7 +63,7 @@ initializeServices()
 		const adminRoutes = await import("./routes/admin.js");
 		const deploymentRoutes = await import("./routes/deployment.js");
 		const webhookRoutes = await import("./routes/webhook.js");
-		const { apiKeyRouter } = await import("./routes/apiKeyRouter.js");
+		const { instanceRouter } = await import("./routes/instanceRouter.js");
 		const { userRouter } = await import("./routes/user.js");
 		const { userSubscriptionsRouter } = await import(
 			"./routes/userSubscriptions.js"
@@ -117,7 +119,7 @@ initializeServices()
 		app.use("/memories", memoryRoutes.default); // User-facing semantic memory API
 		app.use("/deploy", deploymentRoutes.default); // Smart contract deployment
 		app.use("/webhook", auth, webhookRoutes.webhook); // Payment gateway webhooks
-		app.use("/apiKey", apiKeyRouter); // API key management
+		app.use("/instances", auth, instanceRouter); // API key management
 		app.use("/user", userRouter); // User account management
 		app.use("/user_subscriptions", auth, userSubscriptionsRouter); // Subscription management
 		app.use("/etherscan", etherScanRouter);

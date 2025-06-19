@@ -1,56 +1,54 @@
 import express from 'express';
 import { auth } from '../middlewares/auth.js';
-import { generateApiKey } from '../utils/apiKey.js';
+import { generateContractHash } from '../utils/contractHash.js';
 import { db } from '../database/db.js';
-import { apiKeyTable } from '../database/schemas/apiKey.js';
-import { createApiKey, listApiKeys,  } from '../database/models/ApiKey.js';
+import { instancesTable } from '../database/schemas/instances.js';
+import { createInstance, getInstanceByUserId, listInstances  } from '../database/models/instances.js';
 import { eq, and } from 'drizzle-orm';
 import { getUserSubscription } from '../database/models/UserSubscription.js';
 
-export const apiKeyRouter = express.Router();
+export const instanceRouter = express.Router();
 
-apiKeyRouter.post('/create', async (req, res) => {
+instanceRouter.post('/create', async (req, res) => {
     const userId = req.userId;
-    const name = req.body.name || 'Default API Key';
-    const description = req.body.description || 'API Key for ArchiveNet';
+    const name = req.body.name || 'Default Instance';
+    const description = req.body.description || 'Your ArchiveNET instance';
     
     if (!userId) {
         res.status(401).json({ error: 'Unauthorized' });
         return;
     }
-    // Check if user has an active subscription before creating an API key
+
+    // Check if user has an active subscription before creating an instance
     const user_subscription = await getUserSubscription(userId);
     if(!user_subscription || !user_subscription.isActive) {
         res.status(400).json({ error: 'User subscription not found' });
         return;
     }
-    const key = generateApiKey(userId);
-    if (!key) {
-        res.status(500).json({ error: 'Failed to generate API Key' });
+
+    //Check if user already has an instance
+    const existingInstance = await getInstanceByUserId(userId);
+    if (existingInstance) {
+        res.status(201).json(existingInstance);
+        return;
     }
-    const apiKey = key.apiKey; // Not stored in db
-    const keyHash = key.hashedKey;
-    const keyId = key.keyId;
+
     try{
-        const createdApiKey = await createApiKey(userId, keyHash, name, description, keyId);
+        const createdApiKey = await createInstance(userId, "", name, description);
         if (!createdApiKey) {
-            res.status(500).json({ error: 'Failed to create API Key in database' });
+            res.status(500).json({ error: 'Failed to create Instance in database' });
         }
     
         res.status(201).json({
-            message: 'API Key created successfully',
-            apiKey: {
-                key: apiKey,
-                keyPrefix: key.keyPrefix,
-            }
-        });
+            message: 'Your instance was generated successfully'
+        })
     } catch (error) {
-        console.error('Error creating API Key:', error);
+        console.error('Error creating Instance:', error);
         res.status(500).json({ error: 'Internal server error' });
     }  
 })
 
-apiKeyRouter.get('/list', async (req, res) => {
+instanceRouter.get('/list', async (req, res) => {
     const userId = req.userId;
 
     try {
@@ -58,7 +56,7 @@ apiKeyRouter.get('/list', async (req, res) => {
             res.status(401).json({ error: 'Unauthorized' }); 
             return;
         }
-        const apiKeys = await listApiKeys(userId);
+        const apiKeys = await listInstances(userId);
         if (apiKeys.length === 0) {
             res.status(204).json([]);
         }
@@ -69,7 +67,7 @@ apiKeyRouter.get('/list', async (req, res) => {
     }
 });
 
-apiKeyRouter.put('/update/:id', async (req, res) => {
+instanceRouter.put('/update/:id', async (req, res) => {
     const userId = req.userId;
     const apiKeyId = req.params.id;
     const updates = req.body;
@@ -79,16 +77,16 @@ apiKeyRouter.put('/update/:id', async (req, res) => {
             res.status(401).json({ error: 'Unauthorized' });
             return;
         }
-        const updatedApiKey = await db.update(apiKeyTable)
+        const updatedApiKey = await db.update(instancesTable)
             .set({
                 ...updates,
                 updatedAt: new Date(),
             })
-            .where(and(eq(apiKeyTable.userId, userId), eq(apiKeyTable.id, apiKeyId)))
+            .where(and(eq(instancesTable.userId, userId), eq(instancesTable.id, apiKeyId)))
             .returning();
 
         if (!updatedApiKey) {
-            res.status(404).json({ error: 'API Key not found or already deleted' });
+            res.status(404).json({ error: 'Instance not found or already deleted' });
         }
         res.status(201).json(updatedApiKey);
     } catch (error) {

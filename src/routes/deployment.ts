@@ -2,7 +2,8 @@ import { type Request, type Response, Router } from "express";
 import { EizenService } from "../services/EizenService.js";
 import { errorResponse, successResponse } from "../utils/responses.js";
 import { getUserSubscription } from "../database/models/UserSubscription.js";
-import { randomUUID } from "crypto";
+import { getInstanceByUserId, updateInstanceKeyHash } from "../database/models/instances.js";
+import { generateContractHash } from "../utils/contractHash.js";
 
 //Payment webhook contract deployment
 
@@ -34,13 +35,14 @@ const router = Router();
  */
 router.post("/contract", async (req: Request, res: Response) => {
 	try {
-		const userId = req.userId;
+		const userId = req.userId || req.body.userId; // Get user ID from request body or auth middleware
 		if(!userId) {
 			res.status(400).json({
 				message: "User ID is required for contract deployment"
 			   });
    		   return;
 		}
+
 		// only verify subscription as payment is already verified when creating subscription
 		const user_subscription = await getUserSubscription(userId);
 		if(!user_subscription) {
@@ -54,6 +56,20 @@ router.post("/contract", async (req: Request, res: Response) => {
 	 			message: "User subscription tier not found"});
 			return;
 		}
+
+		//Check if a contract already exists for the user
+		const existingInstance = await getInstanceByUserId(userId);
+		if(!existingInstance) {
+			res.status(400).json({
+				message: "No existing instance found for user"
+				});
+			return;
+		}
+		if (existingInstance?.instanceKeyHash) {
+			res.status(201).json(existingInstance.instanceKeyHash);
+			return;
+		}
+
 		// Deploy new Eizen contract on Arweave
 		const deployResult = await EizenService.deployNewContract();
 		const contractTxId = deployResult.contractId;
@@ -63,13 +79,35 @@ router.post("/contract", async (req: Request, res: Response) => {
 				});
 			return;
   		}
+		
 		// TODO: Log deployment for audit trail
 		console.log(`Contract deployed for user ${userId}: ${contractTxId}`);
+
+		const contractHash = generateContractHash(contractTxId, userId);
+		if(!contractHash) {
+			res.status(500).json({
+				message: "Failed to generate contract hash"
+				});
+			return;
+		}
+		const contractHashFingerprint = contractHash.contractHashFingerprint;
+		const hashedContractKey = contractHash.hashedContractKey;
+
+		//Store contract hash in database, provide contract id and hash-fingerprint to user
+		//Verify contract ownership by the hash-fingerprint
+
+		// Update user's instance with the new contract hash
+		const update_contract_hash = await updateInstanceKeyHash(userId, hashedContractKey);
+		if(!update_contract_hash[0])
+			console.error(`Failed to update contract TX ID for user ${userId}`);
+		else 
+			console.log(`Updated contract TX ID for user ${userId}`);
 
 		res.status(201).json(
 			successResponse(
 				{
 					contractTxId,
+					contractHashFingerprint,
 					userId,
 					deployedAt: new Date().toISOString(),
 				},
@@ -122,48 +160,6 @@ router.get("/status/:contractId", async (req: Request, res: Response) => {
 				"Status check endpoint not yet implemented",
 			),
 		);
-});
-
-router.post('/contract/test', async (req: Request, res: Response) => {
-	try {
-		const userId = req.userId || "user_2yadqXNQsdsIB6lqZwBeq1VtSWp"; // For testing, use hardcoded user id
-		if(!userId) {
-			res.status(400).json({
-				message: "User ID is required for contract deployment"
-			   });
-   		   return;
-		}
-		// only verify subscription as payment is already verified when creating subscription
-		const user_subscription = await getUserSubscription(userId);
-		if(!user_subscription) {
-   			res.status(400).json({
- 				message: "User subscription not found"})
-			return;
-		}
-		const subscriptionTier = user_subscription.plan;
-		  if(!subscriptionTier) {
-	  		res.status(400).json({
-	 			message: "User subscription tier not found"});
-			return;
-		}
-		const testTxnId = randomUUID();
-		res.status(200).json({
-			contractTxId: testTxnId,
-			userId,
-			deployedAt: new Date().toISOString(),
-			message: "Test deployment successful",
-			});
-	}catch (error) {
-		  console.error("Test deployment error:", error);
-  res
-   .status(500)
-   .json(
-	errorResponse(
-	 "Failed to deploy contract",
-	 error instanceof Error ? error.message : "Unknown error",
-	),
-   );
-	}
 });
 
 export default router;
